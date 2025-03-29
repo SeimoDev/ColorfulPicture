@@ -1,0 +1,200 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fitsSystemWindows="true"
+    tools:context=".MainActivity">
+
+    <com.google.android.material.appbar.AppBarLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:fitsSystemWindows="true">
+
+        <com.google.android.material.appbar.MaterialToolbar
+            android:id="@+id/toolbar"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize" />
+
+    </com.google.android.material.appbar.AppBarLayout>
+
+    <androidx.core.widget.NestedScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_marginTop="?attr/actionBarSize"
+        android:fillViewport="true">
+
+        <androidx.constraintlayout.widget.ConstraintLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:padding="16dp">
+            
+            <Button
+                android:id="@+id/btnSelectImage"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:text="选择图片"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintTop_toTopOf="parent" />
+
+            <TextView
+                android:id="@+id/tvPreviewLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="实时预览"
+                android:textColor="#000000"
+                android:padding="4dp"
+                android:textSize="12sp"
+                android:layout_marginTop="8dp"
+                app:layout_constraintTop_toBottomOf="@id/btnSelectImage"
+                app:layout_constraintStart_toStartOf="parent" />
+
+            <androidx.cardview.widget.CardView
+                android:id="@+id/cardPreview"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                app:cardCornerRadius="0dp"
+                app:cardElevation="4dp"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintTop_toBottomOf="@id/tvPreviewLabel">
+
+                <androidx.constraintlayout.widget.ConstraintLayout
+                    android:id="@+id/previewContainer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content">
+
+                    <ImageView
+                        android:id="@+id/imagePreview"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:adjustViewBounds="true"
+                        android:scaleType="fitCenter"
+                        android:maxHeight="400dp"
+                        android:contentDescription="预览图片"
+                        app:layout_constraintTop_toTopOf="parent"
+                        app:layout_constraintBottom_toBottomOf="parent"
+                        app:layout_constraintStart_toStartOf="parent"
+                        app:layout_constraintEnd_toEndOf="parent" />
+
+                </androidx.constraintlayout.widget.ConstraintLayout>
+            </androidx.cardview.widget.CardView>
+
+            <TextView
+                android:id="@+id/tvColorTitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="主色调选择"
+                android:layout_marginTop="16dp"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toBottomOf="@id/cardPreview" />
+
+            <HorizontalScrollView
+                android:id="@+id/scrollColors"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintHorizontal_bias="1.0"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toBottomOf="@id/tvColorTitle">
+
+                <LinearLayout
+                    android:id="@+id/colorContainer"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal" />
+            </HorizontalScrollView>
+
+            <com.google.android.material.switchmaterial.SwitchMaterial
+                android:id="@+id/switchCorner"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="照片圆角"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toBottomOf="@+id/scrollColors" />
+
+            <TextView
+                android:id="@+id/tvCornerRadius"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="圆角大小"
+                android:layout_marginTop="8dp"
+                android:layout_marginStart="16dp"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toBottomOf="@id/switchCorner" />
+
+            <SeekBar
+                android:id="@+id/seekBarCornerRadius"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:max="100"
+                android:progress="20"
+                android:layout_marginStart="8dp"
+                android:layout_marginEnd="8dp"
+                app:layout_constraintStart_toEndOf="@id/tvCornerRadius"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintTop_toTopOf="@id/tvCornerRadius"
+                app:layout_constraintBottom_toBottomOf="@id/tvCornerRadius" />
+
+            <TextView
+                android:id="@+id/tvCornerRadiusValue"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="20%"
+                android:layout_marginTop="4dp"
+                app:layout_constraintTop_toBottomOf="@id/seekBarCornerRadius"
+                app:layout_constraintEnd_toEndOf="@id/seekBarCornerRadius" />
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/tilCameraModel"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintTop_toBottomOf="@id/tvCornerRadiusValue">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/etCameraModel"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="机型 (例如: Sony | A7 III)" 
+                    android:text="" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/tilPhotoInfo"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintTop_toBottomOf="@id/tilCameraModel">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/etPhotoInfo"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="镜头信息 (例如: 84mm f/3.6 1/500 ISO200)" 
+                    android:text="" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <Button
+                android:id="@+id/btnGenerate"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:text="生成相框"
+                android:layout_marginTop="16dp"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintTop_toBottomOf="@id/tilPhotoInfo" />
+            
+        </androidx.constraintlayout.widget.ConstraintLayout>
+
+    </androidx.core.widget.NestedScrollView>
+
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

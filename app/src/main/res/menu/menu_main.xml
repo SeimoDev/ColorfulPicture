@@ -1,0 +1,11 @@
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    tools:context="cn.seimo.colorfulpicture.MainActivity">
+    <item
+        android:id="@+id/action_about"
+        android:orderInCategory="90"
+        android:title="关于"
+        android:icon="@android:drawable/ic_menu_info_details"
+        app:showAsAction="always" />
+</menu>
