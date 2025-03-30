@@ -30,6 +30,9 @@ import androidx.appcompat.app.AlertDialog
 import android.text.Html
 import android.text.method.LinkMovementMethod
 import android.widget.TextView
+import java.io.File
+import java.io.FileOutputStream
+import android.content.ContentValues
 
 class MainActivity : AppCompatActivity() {
 
@@ -115,6 +118,85 @@ class MainActivity : AppCompatActivity() {
         checkAndRequestAllPermissions()
         
         setupListeners()
+        
+        // 从保存的状态恢复数据
+        if (savedInstanceState != null) {
+            restoreState(savedInstanceState)
+        }
+    }
+    
+    // 保存状态
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        
+        // 保存所选图片URI
+        if (selectedImageUri != null) {
+            outState.putString("selectedImageUri", selectedImageUri.toString())
+        }
+        
+        // 保存颜色和模式设置
+        outState.putInt("selectedFrameColor", selectedFrameColor)
+        outState.putInt("dominantColor", dominantColor)
+        outState.putBoolean("isPreviewMode", isPreviewMode)
+        
+        // 保存圆角设置
+        outState.putBoolean("isCornerEnabled", isCornerEnabled)
+        outState.putInt("cornerRadiusPercent", cornerRadiusPercent)
+        
+        // 保存文本信息
+        outState.putString("cameraModel", binding.etCameraModel.text.toString())
+        outState.putString("photoInfo", binding.etPhotoInfo.text.toString())
+    }
+    
+    // 恢复状态
+    private fun restoreState(savedInstanceState: Bundle) {
+        // 恢复所选图片URI
+        val uriString = savedInstanceState.getString("selectedImageUri")
+        if (uriString != null) {
+            selectedImageUri = Uri.parse(uriString)
+            // 重新加载图片，但不提取颜色（避免重复工作）
+            selectedImageUri?.let { loadImageFromSavedState(it) }
+        }
+        
+        // 恢复颜色和模式设置
+        selectedFrameColor = savedInstanceState.getInt("selectedFrameColor", Color.WHITE)
+        dominantColor = savedInstanceState.getInt("dominantColor", Color.WHITE)
+        isPreviewMode = savedInstanceState.getBoolean("isPreviewMode", true)
+        
+        // 恢复圆角设置
+        isCornerEnabled = savedInstanceState.getBoolean("isCornerEnabled", false)
+        cornerRadiusPercent = savedInstanceState.getInt("cornerRadiusPercent", 20)
+        
+        // 更新圆角UI状态
+        binding.switchCorner.isChecked = isCornerEnabled
+        binding.seekBarCornerRadius.progress = cornerRadiusPercent
+        binding.seekBarCornerRadius.isEnabled = isCornerEnabled
+        binding.tvCornerRadius.alpha = if (isCornerEnabled) 1.0f else 0.5f
+        binding.tvCornerRadiusValue.alpha = if (isCornerEnabled) 1.0f else 0.5f
+        binding.tvCornerRadiusValue.text = "$cornerRadiusPercent%"
+        
+        // 恢复文本信息
+        binding.etCameraModel.setText(savedInstanceState.getString("cameraModel", ""))
+        binding.etPhotoInfo.setText(savedInstanceState.getString("photoInfo", ""))
+        
+        // 更新预览模式标签
+        binding.tvPreviewLabel.text = if (isPreviewMode) "实时预览 (点击切换)" else "已暂停预览 (点击切换)"
+    }
+    
+    // 从已保存的状态加载图片，避免重复提取颜色
+    private fun loadImageFromSavedState(uri: Uri) {
+        try {
+            val bitmap = MediaStore.Images.Media.getBitmap(contentResolver, uri)
+            originalBitmap = bitmap
+            
+            if (isPreviewMode) {
+                updatePreview()
+            } else {
+                binding.imagePreview.setImageBitmap(bitmap)
+            }
+        } catch (e: Exception) {
+            Toast.makeText(this, "加载图片失败: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
     }
     
     private fun setupListeners() {
@@ -593,25 +675,299 @@ class MainActivity : AppCompatActivity() {
     
     private fun saveImageToGallery() {
         try {
-            // 从ImageView获取位图
             selectedImageUri?.let { uri ->
+                // 获取原始图片的位图
                 val originalBitmap = MediaStore.Images.Media.getBitmap(contentResolver, uri)
                 
                 // 创建相框图片
                 val framedBitmap = createFramedImage(originalBitmap)
                 
-                // 保存到图库
-                MediaStore.Images.Media.insertImage(
-                    contentResolver,
-                    framedBitmap,
-                    "ColorfulPicture_${System.currentTimeMillis()}",
-                    "使用ColorfulPicture创建的相框图片"
-                )
+                // 获取原始图片的EXIF数据
+                var exifInterface: ExifInterface? = null
+                try {
+                    contentResolver.openInputStream(uri)?.use { inputStream ->
+                        exifInterface = ExifInterface(inputStream)
+                    }
+                } catch (e: Exception) {
+                    Log.e("ExifSaver", "读取原始EXIF数据失败: ${e.message}")
+                }
                 
-                Toast.makeText(this, "图片已保存到相册", Toast.LENGTH_SHORT).show()
+                // 保存图片到临时文件并应用EXIF数据
+                val fileName = "ColorfulPicture_${System.currentTimeMillis()}.jpg"
+                val outputDir = cacheDir // 使用应用缓存目录
+                val outputFile = File(outputDir, fileName)
+                
+                // 将位图保存到临时文件
+                val outputStream = FileOutputStream(outputFile)
+                framedBitmap.compress(Bitmap.CompressFormat.JPEG, 95, outputStream)
+                outputStream.flush()
+                outputStream.close()
+                
+                // 将EXIF数据写入新图片
+                if (exifInterface != null) {
+                    try {
+                        val newExif = ExifInterface(outputFile.absolutePath)
+                        
+                        // 复制原始EXIF标签到新图片
+                        copyExifTags(exifInterface!!, newExif)
+                        
+                        // 保存EXIF更改
+                        newExif.saveAttributes()
+                    } catch (e: Exception) {
+                        Log.e("ExifSaver", "写入EXIF数据失败: ${e.message}")
+                    }
+                }
+                
+                // 将图片添加到媒体库
+                val values = ContentValues().apply {
+                    put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
+                    put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                    put(MediaStore.Images.Media.TITLE, fileName)
+                    put(MediaStore.Images.Media.DESCRIPTION, "使用ColorfulPicture创建的相框图片")
+                    
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures")
+                        put(MediaStore.Images.Media.IS_PENDING, 1)
+                    }
+                }
+                
+                // 插入到媒体库并获取URI
+                val imageUri = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+                
+                if (imageUri != null) {
+                    // 将位图数据写入媒体库
+                    contentResolver.openOutputStream(imageUri)?.use { os ->
+                        outputFile.inputStream().use { it.copyTo(os) }
+                    }
+                    
+                    // 对于Android 10及以上版本，标记完成
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        values.clear()
+                        values.put(MediaStore.Images.Media.IS_PENDING, 0)
+                        contentResolver.update(imageUri, values, null, null)
+                    }
+                    
+                    // 删除临时文件
+                    outputFile.delete()
+                    
+                    Toast.makeText(this, "图片已保存到相册", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(this, "保存失败: 无法创建媒体条目", Toast.LENGTH_SHORT).show()
+                }
             }
         } catch (e: Exception) {
             Toast.makeText(this, "保存失败: ${e.message}", Toast.LENGTH_SHORT).show()
+            Log.e("SaveImage", "保存失败", e)
+        }
+    }
+    
+    /**
+     * 复制EXIF标签从源到目标
+     */
+    private fun copyExifTags(source: ExifInterface, target: ExifInterface) {
+        // Android支持的基础EXIF标签列表（在所有支持的Android版本中都可用）
+        val basicTags = arrayOf(
+            // 设备信息
+            ExifInterface.TAG_MAKE,
+            ExifInterface.TAG_MODEL,
+            
+            // 拍摄时间信息
+            ExifInterface.TAG_DATETIME,
+            ExifInterface.TAG_DATETIME_ORIGINAL,
+            ExifInterface.TAG_DATETIME_DIGITIZED,
+            
+            // 拍摄参数
+            ExifInterface.TAG_EXPOSURE_TIME,
+            ExifInterface.TAG_F_NUMBER,
+            ExifInterface.TAG_ISO_SPEED_RATINGS,
+            ExifInterface.TAG_SHUTTER_SPEED_VALUE,
+            ExifInterface.TAG_APERTURE_VALUE,
+            ExifInterface.TAG_BRIGHTNESS_VALUE,
+            ExifInterface.TAG_EXPOSURE_BIAS_VALUE,
+            ExifInterface.TAG_MAX_APERTURE_VALUE,
+            ExifInterface.TAG_SUBJECT_DISTANCE,
+            ExifInterface.TAG_METERING_MODE,
+            ExifInterface.TAG_LIGHT_SOURCE,
+            ExifInterface.TAG_FLASH,
+            ExifInterface.TAG_FOCAL_LENGTH,
+            ExifInterface.TAG_WHITE_BALANCE,
+            
+            // 图像信息
+            ExifInterface.TAG_IMAGE_LENGTH,
+            ExifInterface.TAG_IMAGE_WIDTH,
+            ExifInterface.TAG_ORIENTATION,
+            ExifInterface.TAG_JPEG_INTERCHANGE_FORMAT,
+            ExifInterface.TAG_JPEG_INTERCHANGE_FORMAT_LENGTH,
+            
+            // GPS信息
+            ExifInterface.TAG_GPS_LATITUDE,
+            ExifInterface.TAG_GPS_LATITUDE_REF,
+            ExifInterface.TAG_GPS_LONGITUDE,
+            ExifInterface.TAG_GPS_LONGITUDE_REF,
+            ExifInterface.TAG_GPS_ALTITUDE,
+            ExifInterface.TAG_GPS_ALTITUDE_REF,
+            ExifInterface.TAG_GPS_TIMESTAMP,
+            ExifInterface.TAG_GPS_DATESTAMP,
+            
+            // 版权和作者信息
+            ExifInterface.TAG_COPYRIGHT,
+            ExifInterface.TAG_ARTIST
+        )
+        
+        // 复制基础标签
+        for (tag in basicTags) {
+            try {
+                val value = source.getAttribute(tag)
+                if (value != null) {
+                    target.setAttribute(tag, value)
+                }
+            } catch (e: Exception) {
+                Log.d("ExifCopy", "复制基础标签[$tag]失败: ${e.message}")
+            }
+        }
+        
+        // Android 7.0 (N, API 24)及以上版本支持的额外标签
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            try {
+                val nAndAboveTags = arrayOf(
+                    ExifInterface.TAG_IMAGE_DESCRIPTION,
+                    ExifInterface.TAG_EXPOSURE_PROGRAM,
+                    ExifInterface.TAG_SPECTRAL_SENSITIVITY,
+                    // Android N开始支持，但有些设备可能不支持
+                    "PhotoographicSensitivity", // 替代TAG_PHOTOGRAPHIC_SENSITIVITY
+                    ExifInterface.TAG_OECF,
+                    ExifInterface.TAG_FOCAL_LENGTH_IN_35MM_FILM,
+                    ExifInterface.TAG_SCENE_CAPTURE_TYPE,
+                    ExifInterface.TAG_GAIN_CONTROL,
+                    ExifInterface.TAG_CONTRAST,
+                    ExifInterface.TAG_SATURATION,
+                    ExifInterface.TAG_SHARPNESS,
+                    ExifInterface.TAG_DEVICE_SETTING_DESCRIPTION,
+                    ExifInterface.TAG_SUBJECT_DISTANCE_RANGE,
+                    ExifInterface.TAG_IMAGE_UNIQUE_ID,
+                    ExifInterface.TAG_EXIF_VERSION,
+                    ExifInterface.TAG_FLASHPIX_VERSION,
+                    ExifInterface.TAG_COLOR_SPACE,
+                    ExifInterface.TAG_PIXEL_X_DIMENSION,
+                    ExifInterface.TAG_PIXEL_Y_DIMENSION,
+                    ExifInterface.TAG_COMPONENTS_CONFIGURATION,
+                    ExifInterface.TAG_COMPRESSED_BITS_PER_PIXEL,
+                    ExifInterface.TAG_USER_COMMENT,
+                    ExifInterface.TAG_RELATED_SOUND_FILE,
+                    ExifInterface.TAG_OFFSET_TIME,
+                    ExifInterface.TAG_OFFSET_TIME_ORIGINAL,
+                    ExifInterface.TAG_OFFSET_TIME_DIGITIZED,
+                    ExifInterface.TAG_SUBSEC_TIME,
+                    ExifInterface.TAG_SUBSEC_TIME_ORIGINAL,
+                    ExifInterface.TAG_SUBSEC_TIME_DIGITIZED
+                )
+                
+                for (tag in nAndAboveTags) {
+                    val value = source.getAttribute(tag)
+                    if (value != null) {
+                        target.setAttribute(tag, value)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.d("ExifCopy", "复制Android N及以上标签失败: ${e.message}")
+            }
+        }
+        
+        // Android 10 (Q, API 29)及以上版本支持的标签
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            try {
+                val qAndAboveTags = arrayOf(
+                    ExifInterface.TAG_GPS_IMG_DIRECTION,
+                    ExifInterface.TAG_GPS_IMG_DIRECTION_REF,
+                    ExifInterface.TAG_GPS_TRACK,
+                    ExifInterface.TAG_GPS_TRACK_REF,
+                    ExifInterface.TAG_GPS_SPEED,
+                    ExifInterface.TAG_GPS_SPEED_REF,
+                    ExifInterface.TAG_GPS_DEST_BEARING,
+                    ExifInterface.TAG_GPS_DEST_BEARING_REF,
+                    ExifInterface.TAG_GPS_DEST_DISTANCE,
+                    ExifInterface.TAG_GPS_DEST_DISTANCE_REF,
+                    ExifInterface.TAG_GPS_PROCESSING_METHOD,
+                    ExifInterface.TAG_GPS_AREA_INFORMATION,
+                    ExifInterface.TAG_GPS_DIFFERENTIAL,
+                    "GPSHPositioningError", // 替代TAG_GPS_H_POSITIONING_ERROR
+                    ExifInterface.TAG_INTEROPERABILITY_INDEX,
+                    ExifInterface.TAG_DNG_VERSION,
+                    ExifInterface.TAG_DEFAULT_CROP_SIZE
+                )
+                
+                for (tag in qAndAboveTags) {
+                    val value = source.getAttribute(tag)
+                    if (value != null) {
+                        target.setAttribute(tag, value)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.d("ExifCopy", "复制Android Q及以上标签失败: ${e.message}")
+            }
+        }
+        
+        // Android 11 (R, API 30)及以上版本支持的标签
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            try {
+                // 使用字符串常量替代 ExifInterface 中的常量
+                val rAndAboveTags = arrayOf(
+                    "CameraOwnerName",      // 替代TAG_CAMERA_OWNER_NAME
+                    "BodySerialNumber",     // 替代TAG_BODY_SERIAL_NUMBER
+                    "LensSpecification",    // 替代TAG_LENS_SPECIFICATION
+                    "LensMake",             // 替代TAG_LENS_MAKE
+                    "LensModel",            // 替代TAG_LENS_MODEL
+                    "LensSerialNumber"      // 替代TAG_LENS_SERIAL_NUMBER
+                )
+                
+                for (tag in rAndAboveTags) {
+                    val value = source.getAttribute(tag)
+                    if (value != null) {
+                        target.setAttribute(tag, value)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.d("ExifCopy", "复制Android R及以上标签失败: ${e.message}")
+            }
+        }
+        
+        // 针对不同Android版本的ISO标签特殊处理
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
+            try {
+                val isoValue = source.getAttribute("ISOSpeedRatings")
+                if (isoValue != null) {
+                    target.setAttribute("ISOSpeedRatings", isoValue)
+                }
+            } catch (e: Exception) {
+                Log.e("ExifCopy", "复制ISO标签失败: ${e.message}")
+            }
+        }
+        
+        // 尝试复制可能的未列出标签 - 尽最大努力捕获所有可能的标签
+        try {
+            val additionalTags = arrayOf(
+                // 一些相机特有标签
+                "SerialNumber",
+                "LensSerialNumber",
+                "ImageNumber",
+                "SonyModelID",
+                "CanonModelID",
+                "NikonModelID",
+                "FujiFilmModelID",
+                // 一些图像编辑软件可能添加的标签
+                "Rating",
+                "Software",
+                "HostComputer"
+            )
+            
+            for (tag in additionalTags) {
+                val value = source.getAttribute(tag)
+                if (value != null) {
+                    target.setAttribute(tag, value)
+                }
+            }
+        } catch (e: Exception) {
+            Log.d("ExifCopy", "复制额外标签失败: ${e.message}")
         }
     }
     
