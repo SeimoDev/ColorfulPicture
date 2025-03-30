@@ -33,6 +33,7 @@ import android.widget.TextView
 import java.io.File
 import java.io.FileOutputStream
 import android.content.ContentValues
+import androidx.core.content.FileProvider
 
 class MainActivity : AppCompatActivity() {
 
@@ -46,6 +47,7 @@ class MainActivity : AppCompatActivity() {
     private var themeColor: Int = Color.BLUE // 默认主题色
     private var isCornerEnabled = false // 是否启用圆角
     private var cornerRadiusPercent = 20 // 圆角大小百分比
+    private var lastGeneratedImagePath: String? = null // 保存最后生成的图片路径
 
     // 用于请求单个权限
     private val requestPermissionLauncher = registerForActivityResult(
@@ -54,7 +56,15 @@ class MainActivity : AppCompatActivity() {
         if (isGranted) {
             // 如果是从选择图片按钮触发的，则打开图片选择器
             if (permissionRequestReason == REASON_PICK_IMAGE) {
-                openImagePicker()
+                // 检查是否有分享的图片等待处理
+                val shareUri = selectedImageUri
+                if (shareUri != null && intent.action?.startsWith("android.intent.action.SEND") == true) {
+                    // 有分享的图片等待处理
+                    loadImage(shareUri)
+                } else {
+                    // 没有分享的图片，打开图片选择器
+                    openImagePicker()
+                }
             } else if (permissionRequestReason == REASON_SAVE_IMAGE) {
                 saveImageToGallery()
             }
@@ -119,9 +129,79 @@ class MainActivity : AppCompatActivity() {
         
         setupListeners()
         
+        // 处理接收到的分享图片
+        handleReceivedImageIntent(intent)
+        
         // 从保存的状态恢复数据
         if (savedInstanceState != null) {
             restoreState(savedInstanceState)
+        }
+    }
+    
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        // 处理新接收到的分享图片
+        handleReceivedImageIntent(intent)
+    }
+    
+    /**
+     * 处理接收到的图片分享Intent
+     */
+    private fun handleReceivedImageIntent(intent: Intent) {
+        val action = intent.action
+        val type = intent.type
+        
+        if ((Intent.ACTION_SEND == action || Intent.ACTION_SEND_MULTIPLE == action) && type?.startsWith("image/") == true) {
+            try {
+                if (Intent.ACTION_SEND == action) {
+                    // 处理单张图片
+                    val imageUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        intent.getParcelableExtra(Intent.EXTRA_STREAM) as? Uri
+                    }
+                    
+                    imageUri?.let {
+                        // 需要权限，检查并请求
+                        if (checkAndRequestImagePermission()) {
+                            // 已有权限，直接加载图片
+                            selectedImageUri = it
+                            loadImage(it)
+                            Toast.makeText(this, "已接收分享的图片", Toast.LENGTH_SHORT).show()
+                        } else {
+                            // 在权限授予后会从onCreate/onResume调用，不需额外处理
+                            permissionRequestReason = REASON_PICK_IMAGE
+                        }
+                    }
+                } else if (Intent.ACTION_SEND_MULTIPLE == action) {
+                    // 处理多张图片（只取第一张）
+                    val imageUris = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)
+                    }
+                    
+                    if (!imageUris.isNullOrEmpty()) {
+                        val firstImageUri = imageUris[0]
+                        // 需要权限，检查并请求
+                        if (checkAndRequestImagePermission()) {
+                            // 已有权限，直接加载图片
+                            selectedImageUri = firstImageUri
+                            loadImage(firstImageUri)
+                            Toast.makeText(this, "已接收分享的图片（仅使用第一张）", Toast.LENGTH_SHORT).show()
+                        } else {
+                            // 在权限授予后会从onCreate/onResume调用，不需额外处理
+                            permissionRequestReason = REASON_PICK_IMAGE
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("ImageShare", "处理分享图片失败: ${e.message}")
+                Toast.makeText(this, "处理分享图片时出错", Toast.LENGTH_SHORT).show()
+            }
         }
     }
     
@@ -213,6 +293,21 @@ class MainActivity : AppCompatActivity() {
                 permissionRequestReason = REASON_SAVE_IMAGE
                 if (checkAndRequestStoragePermission()) {
                     saveImageToGallery()
+                }
+            } else {
+                Toast.makeText(this, "请先选择一张图片", Toast.LENGTH_SHORT).show()
+            }
+        }
+        
+        // 添加分享按钮点击事件
+        binding.btnShare.setOnClickListener {
+            if (selectedImageUri != null) {
+                if (lastGeneratedImagePath != null) {
+                    // 已有生成的图片，直接分享
+                    shareImage(File(lastGeneratedImagePath!!))
+                } else {
+                    // 生成图片并分享
+                    generateAndShareImage()
                 }
             } else {
                 Toast.makeText(this, "请先选择一张图片", Toast.LENGTH_SHORT).show()
@@ -747,6 +842,9 @@ class MainActivity : AppCompatActivity() {
                         contentResolver.update(imageUri, values, null, null)
                     }
                     
+                    // 保存最后生成的图片路径（用于分享）
+                    lastGeneratedImagePath = outputFile.absolutePath
+                    
                     // 删除临时文件
                     outputFile.delete()
                     
@@ -758,6 +856,94 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) {
             Toast.makeText(this, "保存失败: ${e.message}", Toast.LENGTH_SHORT).show()
             Log.e("SaveImage", "保存失败", e)
+        }
+    }
+    
+    /**
+     * 生成图片并分享
+     */
+    private fun generateAndShareImage() {
+        try {
+            selectedImageUri?.let { uri ->
+                // 获取原始图片的位图
+                val originalBitmap = MediaStore.Images.Media.getBitmap(contentResolver, uri)
+                
+                // 创建相框图片
+                val framedBitmap = createFramedImage(originalBitmap)
+                
+                // 获取原始图片的EXIF数据
+                var exifInterface: ExifInterface? = null
+                try {
+                    contentResolver.openInputStream(uri)?.use { inputStream ->
+                        exifInterface = ExifInterface(inputStream)
+                    }
+                } catch (e: Exception) {
+                    Log.e("ExifSaver", "读取原始EXIF数据失败: ${e.message}")
+                }
+                
+                // 保存图片到临时文件
+                val fileName = "ColorfulPicture_share_${System.currentTimeMillis()}.jpg"
+                val outputDir = File(cacheDir, "images")
+                if (!outputDir.exists()) {
+                    outputDir.mkdirs()
+                }
+                val outputFile = File(outputDir, fileName)
+                
+                // 将位图保存到临时文件
+                val outputStream = FileOutputStream(outputFile)
+                framedBitmap.compress(Bitmap.CompressFormat.JPEG, 95, outputStream)
+                outputStream.flush()
+                outputStream.close()
+                
+                // 将EXIF数据写入分享图片
+                if (exifInterface != null) {
+                    try {
+                        val newExif = ExifInterface(outputFile.absolutePath)
+                        
+                        // 复制原始EXIF标签到新图片
+                        copyExifTags(exifInterface!!, newExif)
+                        
+                        // 保存EXIF更改
+                        newExif.saveAttributes()
+                    } catch (e: Exception) {
+                        Log.e("ExifSaver", "写入EXIF数据到分享图片失败: ${e.message}")
+                    }
+                }
+                
+                // 保存最后生成的图片路径
+                lastGeneratedImagePath = outputFile.absolutePath
+                
+                // 分享图片
+                shareImage(outputFile)
+            }
+        } catch (e: Exception) {
+            Toast.makeText(this, "生成图片失败: ${e.message}", Toast.LENGTH_SHORT).show()
+            Log.e("ShareImage", "生成失败", e)
+        }
+    }
+    
+    /**
+     * 分享图片
+     */
+    private fun shareImage(imageFile: File) {
+        try {
+            val contentUri = FileProvider.getUriForFile(
+                this,
+                "cn.seimo.colorfulpicture.fileprovider",
+                imageFile
+            )
+            
+            val shareIntent = Intent().apply {
+                action = Intent.ACTION_SEND
+                putExtra(Intent.EXTRA_STREAM, contentUri)
+                type = "image/jpeg"
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            
+            startActivity(Intent.createChooser(shareIntent, "分享图片"))
+        } catch (e: Exception) {
+            Toast.makeText(this, "分享失败: ${e.message}", Toast.LENGTH_SHORT).show()
+            Log.e("ShareImage", "分享失败", e)
         }
     }
     
